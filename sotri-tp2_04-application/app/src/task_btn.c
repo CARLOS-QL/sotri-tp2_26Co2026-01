@@ -92,10 +92,11 @@ void task_btn(void *parameters)
 		/* Update Task Counter */
 		g_task_btn_cnt++;
 		
-		if (xSemaphoreTake(h_btn_led_bin_sem, portMAX_DELAY) == pdTRUE)
-		{
-		    task_btn_statechart();
-		}
+		/* Run Task Statechart */
+    	task_btn_statechart();
+
+    	/* We want this task to execute every 50 milliseconds. */
+		vTaskDelay(BTN_TICK_DEL_MAX);
 	}
 }
 
@@ -133,10 +134,7 @@ void task_btn_statechart(void)
 					/* Print out: Task execution */
 					LOGGER_INFO(" %s - BTN PRESSED", pcTaskGetName(NULL));
 
-					task_led_dta.event = EV_LED_BLINK;
-					xSemaphoreGive(h_btn_led_bin_sem);
-
-					//put_event_task_led(EV_LED_BLINK);
+					put_event_task_led(EV_LED_BLINK);
 					task_btn_dta.state = ST_BTN_DOWN;
 				}
 				else
@@ -166,9 +164,7 @@ void task_btn_statechart(void)
 					/* Print out: Task execution */
 					LOGGER_INFO(" %s - BTN HOVER", pcTaskGetName(NULL));
 
-					task_led_dta.event = EV_LED_OFF;
-					xSemaphoreGive(h_btn_led_bin_sem);
-					//put_event_task_led(EV_LED_OFF);
+					put_event_task_led(EV_LED_OFF);
 					task_btn_dta.state = ST_BTN_UP;
 				}
 				else

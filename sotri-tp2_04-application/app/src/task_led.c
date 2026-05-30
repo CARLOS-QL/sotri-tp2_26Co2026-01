@@ -44,136 +44,101 @@
 /* Application & Tasks includes */
 #include "board.h"
 #include "app.h"
-#include "task_btn_attribute.h"
 #include "task_led_attribute.h"
-#include "task_led_interface.h"
 
 /********************** macros and definitions *******************************/
-#define G_TASK_BTN_CNT_INI	0ul
+#define G_TASK_LED_CNT_INI	0ul
 
-#define DEL_BTN_MIN			0ul
-#define DEL_BTN_MED			25ul
-#define DEL_BTN_MAX			50ul
+#define DEL_LED_MIN			0ul
+#define DEL_LED_MED			250ul
+#define DEL_LED_MAX			500ul
 
-#define EV_SYS_IDLE			0ul
-#define EV_SYS_LOOP_DET		1ul
-
-#define BTN_TICK_DEL_ZERO	(pdMS_TO_TICKS(0ul))
-#define BTN_TICK_DEL_MAX	(pdMS_TO_TICKS(50ul))
+#define LED_TICK_DEL_ZERO	(pdMS_TO_TICKS(0ul))
+#define LED_TICK_DEL_MAX	(pdMS_TO_TICKS(50ul))
 
 /********************** internal data declaration ****************************/
-task_btn_dta_t task_btn_dta = {
-		EV_BTN_UP, ST_BTN_UP, DEL_BTN_MIN,
-		B1_GPIO_Port, B1_Pin
+task_led_dta_t task_led_dta = {
+		false, EV_LED_OFF, ST_LED_OFF, DEL_LED_MIN,
+		LD2_GPIO_Port, LD2_Pin
 };
 
 /********************** internal functions declaration ***********************/
-void task_btn_statechart(void);
+void task_led_statechart(void);
 
 /********************** internal data definition *****************************/
 
 /********************** external data declaration ****************************/
-uint32_t g_task_btn_cnt;
+uint32_t g_task_led_cnt;
 
 /********************** external functions definition ************************/
-/* Task BTN thread */
-void task_btn(void *parameters)
+/* Task LED thread */
+void task_led(void *parameters)
 {
 	/*  Declare & Initialize Task Function variables */
-	g_task_btn_cnt = G_TASK_BTN_CNT_INI;
+	g_task_led_cnt = G_TASK_LED_CNT_INI;
+	
+	TickType_t last_wake_time;
+
+	/* The xLastWakeTime variable needs to be initialized with the current tick
+	   count. ws*/
+	last_wake_time = xTaskGetTickCount();
 
 	/* Print out: Task Initialized */
 	LOGGER_INFO(" ");
 	LOGGER_INFO("%s is running - Tick [mS] = %3d", pcTaskGetName(NULL), (int)xTaskGetTickCount());
 
+	HAL_GPIO_WritePin(task_led_dta.gpio_port, task_led_dta.pin, LED_OFF);
+
 	/* As per most tasks, this task is implemented in an infinite loop. */
 	for (;;)
 	{
 		/* Update Task Counter */
-		g_task_btn_cnt++;
-		
-		if (xSemaphoreTake(h_btn_led_bin_sem, portMAX_DELAY) == pdTRUE)
-		{
-		    task_btn_statechart();
-		}
+		g_task_led_cnt++;
+
+		/* Run Task Statechart */
+    	task_led_statechart();
+
+    	/* We want this task to execute exactly every 50 milliseconds. */
+		vTaskDelayUntil(&last_wake_time, LED_TICK_DEL_MAX);
 	}
 }
 
-void task_btn_statechart(void)
+void task_led_statechart(void)
 {
-	/* Get Events to excite Task */
-	if (BTN_PRESSED == HAL_GPIO_ReadPin(task_btn_dta.gpio_port, task_btn_dta.pin))
+	switch (task_led_dta.state)
 	{
-		task_btn_dta.event = EV_BTN_DOWN;
-	}
-	else
-	{
-		task_btn_dta.event = EV_BTN_UP;
-	}
+		case ST_LED_OFF:
 
-	/* Run to Completion Statechart */
-	switch (task_btn_dta.state)
-	{
-		case ST_BTN_UP:
-
-			if (EV_BTN_DOWN == task_btn_dta.event)
+			if ((true == task_led_dta.flag) && (EV_LED_BLINK == task_led_dta.event))
 			{
-				task_btn_dta.tick = xTaskGetTickCount();
-				task_btn_dta.state = ST_BTN_FALLING;
+				/* Print out: Task execution */
+				LOGGER_INFO(" %s - LED BLINK", pcTaskGetName(NULL));
+
+				task_led_dta.flag = false;
+				task_led_dta.tick = xTaskGetTickCount();
+				task_led_dta.state = ST_LED_BLINK;
+				HAL_GPIO_WritePin(task_led_dta.gpio_port, task_led_dta.pin, LED_ON);
 			}
 
 			break;
 
-		case ST_BTN_FALLING:
+		case ST_LED_BLINK:
 
-			if (DEL_BTN_MAX <= (xTaskGetTickCount() - task_btn_dta.tick))
+			if ((true == task_led_dta.flag) && (EV_LED_OFF == task_led_dta.event))
 			{
-				if (EV_BTN_DOWN == task_btn_dta.event)
-				{
-					/* Print out: Task execution */
-					LOGGER_INFO(" %s - BTN PRESSED", pcTaskGetName(NULL));
+				/* Print out: Task execution */
+				LOGGER_INFO(" %s - LED OFF", pcTaskGetName(NULL));
 
-					task_led_dta.event = EV_LED_BLINK;
-					xSemaphoreGive(h_btn_led_bin_sem);
-
-					//put_event_task_led(EV_LED_BLINK);
-					task_btn_dta.state = ST_BTN_DOWN;
-				}
-				else
-				{
-					task_btn_dta.state = ST_BTN_UP;
-				}
+				task_led_dta.flag = false;
+				task_led_dta.state = ST_LED_OFF;
+				HAL_GPIO_WritePin(task_led_dta.gpio_port, task_led_dta.pin, LED_OFF);
 			}
-
-			break;
-
-		case ST_BTN_DOWN:
-
-			if (EV_BTN_UP == task_btn_dta.event)
+			else
 			{
-				task_btn_dta.tick = xTaskGetTickCount();
-				task_btn_dta.state = ST_BTN_RISING;
-			}
-
-			break;
-
-		case ST_BTN_RISING:
-
-			if (DEL_BTN_MAX <= (xTaskGetTickCount() - task_btn_dta.tick))
-			{
-				if (EV_BTN_UP == task_btn_dta.event)
+				if (DEL_LED_MAX <= (xTaskGetTickCount() - task_led_dta.tick))
 				{
-					/* Print out: Task execution */
-					LOGGER_INFO(" %s - BTN HOVER", pcTaskGetName(NULL));
-
-					task_led_dta.event = EV_LED_OFF;
-					xSemaphoreGive(h_btn_led_bin_sem);
-					//put_event_task_led(EV_LED_OFF);
-					task_btn_dta.state = ST_BTN_UP;
-				}
-				else
-				{
-					task_btn_dta.state = ST_BTN_DOWN;
+					task_led_dta.tick = xTaskGetTickCount();
+					HAL_GPIO_TogglePin(task_led_dta.gpio_port, task_led_dta.pin);
 				}
 			}
 
@@ -181,13 +146,14 @@ void task_btn_statechart(void)
 
 		default:
 
-			task_btn_dta.tick  = xTaskGetTickCount();
-			task_btn_dta.state = ST_BTN_UP;
-			task_btn_dta.event = EV_BTN_UP;
+			task_led_dta.flag = false;
+			task_led_dta.event = EV_LED_OFF;
+			task_led_dta.state = ST_LED_OFF;
+			task_led_dta.tick  = xTaskGetTickCount();
+			HAL_GPIO_WritePin(task_led_dta.gpio_port, task_led_dta.pin, LED_OFF);
 
 			break;
 	}
-
 }
 
 /********************** end of file ******************************************/
